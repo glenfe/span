@@ -1,0 +1,54 @@
+# Copyright 2019 Glen Joseph Fernandes
+# (glenjofe@gmail.com)
+#
+# Distributed under the Boost Software License, Version 1.0.
+# (http://www.boost.org/LICENSE_1_0.txt)
+
+version: 1.0.{build}-{branch}
+
+shallow_clone: true
+
+branches:
+  only:
+    - master
+    - develop
+
+environment:
+  matrix:
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2015
+      TOOLSET: msvc-14.0
+      TARGET: 32,64
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
+      TOOLSET: msvc-14.1
+      TARGET: 32,64
+      CXXSTD: 14,17
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019
+      TOOLSET: msvc-14.2
+      TARGET: 32,64
+      CXXSTD: 14,17
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
+      TOOLSET: clang-win
+      TARGET: 32,64
+      CXXSTD: 14,17
+
+install:
+  - set BRANCH=%APPVEYOR_REPO_BRANCH%
+  - cd ..
+  - git clone -b %BRANCH% --depth 1 https://github.com/boostorg/boost
+  - cd boost
+  - git submodule update --init libs/assert
+  - git submodule update --init libs/config
+  - git submodule update --init libs/core
+  - git submodule update --init libs/headers
+  - git submodule update --init tools/build
+  - git submodule update --init tools/boost_install
+  - xcopy /s /e /q %APPVEYOR_BUILD_FOLDER% libs\span\
+  - cmd /c bootstrap
+  - b2 headers
+
+build: off
+
+test_script:
+  - if not "%CXXSTD%" == "" set CXXSTD=cxxstd=%CXXSTD%
+  - if not "%TARGET%" == "" set TARGET=address-model=%TARGET%
+  - b2 libs/span/test toolset=%TOOLSET% %CXXSTD% %TARGET% variant=debug,release

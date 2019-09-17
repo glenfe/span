@@ -1,0 +1,545 @@
+////
+Copyright 2019 Glen Joseph Fernandes
+(glenjofe@gmail.com)
+
+Distributed under the Boost Software License, Version 1.0.
+(http://www.boost.org/LICENSE_1_0.txt)
+////
+
+# Span
+Glen Joseph Fernandes <glenjofe@gmail.com>
+:docinfo: private-footer
+:idprefix:
+:source-language: cpp
+:toc: left
+:toclevels: 3
+
+## Overview
+
+### Description
+
+This library provides class template `span`, which is a view over a sequence
+of objects. It implements the {cpp}20 standard library `std::span` facility.
+This implementation supports {cpp}11 and higher.
+
+In addition to referencing the sequence of objects, the span knows the count
+of objects. There are two kinds of spans:
+
+* Dynamic size (`span<T>` or `span<T, dynamic_extent>`)
+* Static size (`span<T, N>`)
+
+Dynamic size spans have a count that can be a value known at run time. Static
+size spans have a count that must be known at compile time.
+
+### Usage Examples
+
+Consider the following function for obtaining a SHA-1 hash:
+
+```
+unsigned char* sha1(const unsigned char* i, size_t n, unsigned char* o)
+{
+    SHA_CTX c;
+    SHA1_Init(&c);
+    SHA1_Update(&c, i, n);
+    SHA1_Final(o, &c);
+    return o;
+}
+```
+
+--
+Synopsis::
+`sha1()` computes the SHA-1 message digest of the `n` bytes at `i` and
+places it in `o` (which must have space for `sha_digest_size == 20` bytes
+of output). It returns a pointer to the hash value.
+--
+
+* The user has to provide the correct size of the input which is susceptible
+to user error and is also less convenient.
+* The user has to provide an output buffer of suitable size but the interface
+does not help enforce this requirement.
+
+Compare this to the same function designed in terms of spans:
+
+```
+auto sha1(span<const unsigned char> i, span<unsigned char, sha_digest_size> o)
+{
+    SHA_CTX c;
+    SHA1_Init(&c);
+    SHA1_Update(&c, i.data(), i.size());
+    SHA1_Final(o.data(), &c);
+    return o;
+}
+```
+
+* The input is a dynamic size span. It allows the function to be called with
+ranges without having to specify the size.
+* The output is a fixed size span. It prevents the function from being called
+with ranges that are not the correct size.
+
+## Design
+
+### Features
+
+This library is API compatible with `std::span` and provides the same features
+that can be supported in {cpp}11 and above. The following features are only
+enabled when the compiler supports them:
+
+* Deduction guides are enabled when `__cpp_deduction_guides` is defined.
+* Functions for `std::byte` are enabled when `__cpp_lib_byte` is defined.
+
+## Implementation
+
+### Dependencies
+
+This implementation does not depend on any other Boost library.
+
+### Supported Compilers
+
+* GCC 4.7 or later with `-std=c++11` or above
+* Clang 3.3 or later with `-std=c++11` or above
+* Visual Studio 2015 or later
+
+Tested on https://travis-ci.org/glenfe/span[Travis] and
+https://ci.appveyor.com/project/glenfe/span[Appveyor].
+
+## Reference
+
+### <boost/span/span.hpp>
+
+[subs=+quotes]
+```
+namespace boost {
+namespace spans {
+
+constexpr std::size_t dynamic_extent = -1;
+
+template<class T, std::size_t E = dynamic_extent>
+class span;
+
+template<class T, std::size_t E>
+span<const std::byte, E == dynamic_extent ? dynamic_extent : sizeof(T) * E>
+as_bytes(span<T, E> s) noexcept;
+
+template<class T, std::size_t E>
+span<std::byte, E == dynamic_extent ? dynamic_extent : sizeof(T) * E>
+as_writable_bytes(span<T, E> s) noexcept;
+
+} // `spans`
+} // `boost`
+```
+
+### span
+
+A `span` is a view over a contiguous sequence of objects, the storage of which
+is owned by some other object.
+
+All member functions of `span` have constant time complexity.
+
+[subs=+quotes]
+```
+template<class T, std::size_t E = dynamic_extent>
+class span {
+public:
+    typedef T element_type;
+    typedef std::remove_cv_t<T> value_type;
+    typedef std::size_t size_type;
+    typedef std::ptrdiff_t difference_type;
+    typedef T* pointer;
+    typedef const T* const_pointer;
+    typedef T& reference;
+    typedef const T& const_reference;
+    typedef T* iterator;
+    typedef const T* const_iterator;
+    typedef std::reverse_iterator<T*> reverse_iterator;
+    typedef std::reverse_iterator<const T*> const_reverse_iterator;
+
+    static constexpr std::size_t extent = E;
+
+    constexpr span() noexcept;
+
+    explicit(E != dynamic_extent)
+    template<class I>
+    constexpr span(I* f, size_type c);
+
+    explicit(E != dynamic_extent)
+    template<class I, class L>
+    constexpr span(I* f, L* l);
+
+    template<std::size_t N>
+    constexpr span(type_identity_t<T> (&a)[N]);
+
+    template<class U, std::size_t N>
+    constexpr span(std::array<U, N>& a) noexcept;
+
+    template<class U, std::size_t N>
+    constexpr span(const std::array<U, N>& a) noexcept;
+
+    explicit(E != dynamic_extent)
+    template<class R>
+    constexpr span(R&& r);
+
+    explicit(E != dynamic_extent && N == dynamic_extent)
+    template<class U, std::size_t N>
+    constexpr span(const span<U, N>& s) noexcept;
+
+    template<std::size_t C>
+    constexpr span<T, C> first() const;
+
+    template<std::size_t C>
+    constexpr span<T, C> last() const;
+
+    template<std::size_t O, std::size_t C = dynamic_extent>
+    constexpr span<T, `see below`> subspan() const;
+
+    constexpr span<T, dynamic_extent> first(size_type c) const;
+    constexpr span<T, dynamic_extent> last(size_type c) const;
+
+    constexpr span<T, dynamic_extent> subspan(size_type o,
+        size_type c = dynamic_extent) const;
+
+    constexpr size_type size() const noexcept;
+    constexpr size_type size_bytes() const noexcept;
+    constexpr bool empty() const noexcept;
+
+    constexpr reference operator[](size_type i) const;
+    constexpr reference front() const;
+    constexpr reference back() const;
+    constexpr pointer data() const noexcept;
+
+    constexpr iterator begin() const noexcept;
+    constexpr iterator end() const noexcept;
+    constexpr reverse_iterator rbegin() const noexcept;
+    constexpr reverse_iterator rend() const noexcept;
+    constexpr const_iterator cbegin() const noexcept;
+    constexpr const_iterator cend() const noexcept;
+    constexpr const_reverse_iterator crbegin() const noexcept;
+    constexpr const_reverse_iterator crend() const noexcept;
+};
+
+template<class I, class L>
+span(I*, L) -> span<I>;
+
+template<class T, std::size_t N>
+span(T(&)[N]) -> span<T, N>;
+
+template<class T, std::size_t N>
+span(std::array<T, N>&) -> span<T, N>;
+
+template<class T, std::size_t N>
+span(const std::array<T, N>&) -> span<const T, N>;
+
+template<class R>
+span(R&&) -> span<std::remove_pointer_t<decltype(std::declval<R&>().data())> >;
+```
+
+`T` is required to be a complete object type that is not an abstract class
+type.
+
+#### Constructors
+
+```
+constexpr span() noexcept;
+```
+
+[.specification]
+Constraints:: `E == dynamic_extent || E == 0` is `true`.
+Postconditions:: `size() == 0 && data() == nullptr`.
+
+```
+explicit(E != dynamic_extent)
+template<class I>
+constexpr span(I* f, size_type c);
+```
+
+[.specification]
+Constraints:: `is_convertible_v<I(\*)[], T(*)[]>` is `true`.
+Preconditions::
+- `[f, f + c)` is a valid range.
+- If `E` is not equal to `dynamic_extent`, then `c` is equal to `E`.
+Effects:: Constructs a `span` with data `f` and size `c`.
+Throws:: Nothing.
+
+```
+explicit(E != dynamic_extent)
+template<class I, class L>
+constexpr span(I* f, L* l);
+```
+
+[.specification]
+Constraints:: `is_convertible_v<I(\*)[], T(*)[]>` is `true`.
+Preconditions::
+- If `E` is not equal to `dynamic_extent`, then `l - f` is equal to `E`.
+- `[f, l)` is a valid range.
+Effects:: Constructs a `span` with data `f` and size `l - f`.
+Throws:: Nothing.
+
+```
+template<std::size_t N>
+constexpr span(type_identity_t<T> (&a)[N]);
+```
+
+[.specification]
+Constraints:: `E == dynamic_extent || E == N` is `true`.
+Effects:: Constructs a `span` that is a view over the supplied array.
+Postconditions:: `size() == N && data() == &a[0]` is `true`.
+
+```
+template<class U, std::size_t N>
+constexpr span(std::array<U, N>& a) noexcept;
+```
+```
+template<class U, std::size_t N>
+constexpr span(const std::array<U, N>& a) noexcept;
+```
+
+[.specification]
+Constraints::
+- `E == dynamic_extent || E == N` is `true`, and
+- `U(\*)[]` is convertible to `T(*)[]`.
+Effects:: Constructs a `span` that is a view over the supplied array.
+Postconditions:: `size() == N && data() == a.data()` is `true`.
+
+```
+explicit(E != dynamic_extent)
+template<class R>
+constexpr span(R&& r);
+```
+
+[.specification]
+Constraints::
+- `is_lvalue_reference_v<R> || is_const_v<T>` is `true`
+- `remove_cvref_t<R>` is not a specialization of `span`,
+- `remove_cvref_t<R>` is not a specialization of `array`,
+- `is_array_v<remove_cvref_t<R>>` is `false`,
+- `r.data()` is well-formed and
+`is_convertible_v<remove_pointer_t<decltype(declval<R&>().data())>(\*)[],
+T(*)[]>` is `true`, and
+- `r.size()` is well-formed and
+`is_convertible_v<decltype(declval<R&>().size()), size_t>` is `true`.
+Effects:: Constructs a `span` with data `r.data()` and size `r.size()`.
+Throws:: What and when `r.data()` and `r.size()` throw.
+
+```
+explicit(E != dynamic_extent && N == dynamic_extent)
+template<class U, std::size_t N>
+constexpr span(const span<U, N>& s) noexcept;
+```
+
+[.specification]
+Constraints::
+- `E == dynamic_extent || N == dynamic_extent|| E == N` is `true`, and
+- `is_convertible_v<U(\*)[], T(*)[]>` is `true`.
+Preconditions:: If `E` is not equal to `dynamic_extent`, then `s.size()` is
+equal to `E`.
+Effects:: Constructs a `span` that is a view over the range
+`[s.data(), s.data() + s.size())`.
+Postconditions:: `size() == s.size() && data() == s.data()`.
+
+#### Subviews
+
+```
+template<std::size_t C>
+constexpr span<T, C> first() const;
+```
+
+[.specification]
+Mandates:: `C \<= E` is `true`.
+Preconditions:: `C \<= size()` is `true`.
+Effects:: Equivalent to `return R{data(), C};` where `R` is the return type.
+
+```
+template<std::size_t C>
+constexpr span<T, C> last() const;
+```
+
+[.specification]
+Mandates:: `C \<= E` is `true`.
+Preconditions:: `C \<= size()` is `true`.
+Effects:: Equivalent to `return R{data() + (size() - C), C};` where `R` is the
+return type.
+
+[subs=+quotes]
+```
+template<std::size_t O, std::size_t C = dynamic_extent>
+constexpr span<T, `see below`> subspan() const;
+```
+
+[.specification]
+Mandates:: `O \<= E && (C == dynamic_extent || C \<= E - O)` is `true`.
+Preconditions:: `O \<= size() && (C == dynamic_extent || C \<= size() - O)` is
+`true`.
+Effects:: Equivalent to `return span<T, ``see below``>(data() + O,
+C != dynamic_extent ? C : size() - O);`.
+Remarks:: The second template argument of the returned `span` type is:
+`C != dynamic_extent ? C : (E != dynamic_extent ? E - O : dynamic_extent)`
+
+```
+constexpr span<T, dynamic_extent> first(size_type c) const;
+```
+
+[.specification]
+Preconditions:: `c \<= size()` is `true`.
+Effects:: Equivalent to: `return {data(), c};`
+
+```
+constexpr span<T, dynamic_extent> last(size_type c) const;
+```
+
+[.specification]
+Preconditions:: `c \<= size()` is `true`.
+Effects:: Equivalent to: `return {data() + (size() - c), c};`
+
+```
+constexpr span<T, dynamic_extent> subspan(size_type o,
+    size_type c = dynamic_extent) const;
+```
+
+[.specification]
+Preconditions:: `o \<= size() && (c == dynamic_extent || o + c \<= size())` is
+`true`.
+Effects:: Equivalent to:
+`return {data() + o, c == dynamic_extent ? size() - o : c};`
+
+#### Observers
+
+```
+constexpr size_type size() const noexcept;
+```
+
+[.specification]
+Returns:: The number of elements in the span.
+
+```
+constexpr size_type size_bytes() const noexcept;
+```
+
+[.specification]
+Effects:: Equivalent to: `return size() * sizeof(T);`
+
+```
+constexpr bool empty() const noexcept;
+```
+
+[.specification]
+Effects:: Equivalent to: `return size() == 0;`
+
+#### Element access
+
+```
+constexpr reference operator[](size_type i) const;
+```
+
+[.specification]
+Preconditions:: `i < size()` is `true`.
+Effects:: Equivalent to: `return *(data() + i);`
+
+```
+constexpr reference front() const;
+```
+
+[.specification]
+Preconditions:: `empty()` is `false`.
+Effects:: Equivalent to: `return *data();`
+
+```
+constexpr reference back() const;
+```
+
+[.specification]
+Preconditions:: `empty()` is `false`.
+Effects:: Equivalent to: `return *(data() + (size() - 1);`
+
+```
+constexpr pointer data() const noexcept;
+```
+
+[.specification]
+Returns:: A pointer to the first element in the span.
+
+#### Iterator support
+
+```
+constexpr iterator begin() const noexcept;
+```
+
+[.specification]
+Returns:: An iterator referring to the first element in the span. If `empty()`,
+then it returns the same value as `end()`.
+
+```
+constexpr iterator end() const noexcept;
+```
+
+[.specification]
+Returns:: An iterator which is the past-the-end value.
+
+```
+constexpr reverse_iterator rbegin() const noexcept;
+```
+
+[.specification]
+Effects:: Equivalent to: `return reverse_iterator(end());`
+
+```
+constexpr reverse_iterator rend() const noexcept;
+```
+
+[.specification]
+Effects:: Equivalent to: `return reverse_iterator(begin());`
+
+```
+constexpr const_iterator cbegin() const noexcept;
+```
+
+[.specification]
+Returns:: A constant iterator referring to the first element in the span. If
+`empty()`, then it returns the same value as `cend()`.
+
+```
+constexpr const_iterator cend() const noexcept;
+```
+
+[.specification]
+Returns:: A constant iterator which is the past-the-end value.
+
+```
+constexpr const_reverse_iterator crbegin() const noexcept;
+```
+
+[.specification]
+Effects:: Equivalent to: `return const_reverse_iterator(cend());`
+
+```
+constexpr const_reverse_iterator crend() const noexcept;
+```
+
+[.specification]
+Effects:: Equivalent to: `return const_reverse_iterator(cbegin());`
+
+#### Views of object representation
+
+```
+template<class T, std::size_t E>
+span<const std::byte, E == dynamic_extent ? dynamic_extent : sizeof(T) * E>
+as_bytes(span<T, E> s) noexcept;
+```
+
+[.specification]
+Effects:: Equivalent to: `return {reinterpret_cast<const byte*>(s.data()),
+s.size_bytes()};`
+
+```
+template<class T, std::size_t E>
+span<std::byte, E == dynamic_extent ? dynamic_extent : sizeof(T) * E>
+as_writable_bytes(span<T, E> s) noexcept;
+```
+
+[.specification]
+Constraints:: `is_const_v<T>` is `false`.
+Effects:: Equivalent to: `return R{reinterpret_cast<byte*>(s.data()),
+s.size_bytes()};` where `R` is the return type.
+
+## Copyright
+
+Copyright 2019 Glen Joseph Fernandes. Distributed under the
+http://www.boost.org/LICENSE_1_0.txt[Boost Software License, Version 1.0].
